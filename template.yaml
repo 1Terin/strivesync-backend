@@ -1,3 +1,5 @@
+# template.yaml
+
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: StriveSync Backend API - Unified Stack (Auth, Users, Data)
@@ -22,7 +24,7 @@ Parameters:
 
 Globals:
   Function:
-    Runtime: nodejs18.x
+    Runtime: nodejs20.x
     Timeout: 30
     MemorySize: 256
     Tracing: Active
@@ -38,14 +40,22 @@ Resources:
     Type: AWS::DynamoDB::Table
     Properties:
       TableName: !Ref UsersTableName
+      # --- START CHANGE: Update AttributeDefinitions for PK/SK ---
       AttributeDefinitions:
-        - AttributeName: userId
+        - AttributeName: PK
           AttributeType: S
-        - AttributeName: email
+        - AttributeName: SK
           AttributeType: S
+        - AttributeName: email # Keep email for the GSI
+          AttributeType: S
+      # --- END CHANGE ---
+      # --- START CHANGE: Update KeySchema for PK/SK ---
       KeySchema:
-        - AttributeName: userId
+        - AttributeName: PK
           KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      # --- END CHANGE ---
       ProvisionedThroughput:
         ReadCapacityUnits: 1
         WriteCapacityUnits: 1
@@ -118,7 +128,7 @@ Resources:
             Effect: Allow
             Action:
               - cognito-idp:SignUp
-              - cognito-idp:AdminRespondToAuthChallenge # Keep if you use Admin SRP Auth for signup
+              - cognito-idp:AdminRespondToAuthChallenge
             Resource: !GetAtt StriveSyncUserPool.Arn
         - DynamoDBWritePolicy:
             TableName: !Ref UsersTable
@@ -136,18 +146,17 @@ Resources:
         External: ["@aws-sdk/*"]
         Sourcemap: true
 
-  # --- NEW: Confirm Signup Function ---
   ConfirmSignupFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: functions/auth/
-      Handler: handler.confirmSignupHandler # This will be the new handler in handler.ts
+      Handler: handler.confirmSignupHandler
       Policies:
         - Statement:
             Effect: Allow
             Action:
               - cognito-idp:ConfirmSignUp
-              - cognito-idp:ResendConfirmationCode # Optional: if you want to add a resend code endpoint
+              - cognito-idp:ResendConfirmationCode
             Resource: !GetAtt StriveSyncUserPool.Arn
       Events:
         ConfirmSignupApi:
@@ -162,7 +171,6 @@ Resources:
         Target: "es2020"
         External: ["@aws-sdk/*"]
         Sourcemap: true
-  # --- END NEW: Confirm Signup Function ---
 
   LoginFunction:
     Type: AWS::Serverless::Function

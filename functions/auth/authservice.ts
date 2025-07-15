@@ -1,9 +1,9 @@
-// functions/auth/authservice.ts
+// functions/auth/authService.ts
 import {
     SignUpCommand,
     AdminInitiateAuthCommand,
     AuthFlowType,
-    ConfirmSignUpCommand, // NEW: Import ConfirmSignUpCommand
+    ConfirmSignUpCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
 import { cognitoClient } from "common/clients";
 import {
@@ -11,11 +11,12 @@ import {
     LoginResponse,
     SignupRequest,
     SignupResponse,
-    ConfirmSignupRequest, // NEW: Import ConfirmSignupRequest
+    ConfirmSignupRequest,
 } from "api-types/auth";
-import { createUserProfile, getUserProfileById } from "functions/auth/authrepository";
+// Importing specific functions from authRepository for clarity
+import { createUserProfile, getUserProfileById } from "./authrepository";
 import { AppError, UnauthorizedError } from "common/errors";
-import { UserProfile } from "api-types/users";
+import { UserProfile } from "api-types/users"; // Still need this for LoginResponse userProfile type
 
 const USER_POOL_ID = process.env.COGNITO_USER_POOL_ID;
 const CLIENT_ID = process.env.COGNITO_CLIENT_ID;
@@ -48,14 +49,18 @@ export const signupUser = async (data: SignupRequest): Promise<SignupResponse> =
         const response = await cognitoClient.send(signUpCommand);
 
         if (response.UserSub) {
-            const newUserProfile: UserProfile = {
+            // --- START FIX for signupUser's newUserProfile error ---
+            // createUserProfile expects an object WITHOUT PK, SK, createdAt, updatedAt
+            // as it adds them internally based on the new DynamoDB schema.
+            const userProfileDataToCreate = {
                 userId: response.UserSub,
                 username: data.username,
                 email: data.email,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
+                // Do NOT include PK, SK, createdAt, updatedAt here.
+                // authRepository's createUserProfile will handle adding these.
             };
-            await createUserProfile(newUserProfile);
+            await createUserProfile(userProfileDataToCreate);
+            // --- END FIX ---
 
             return {
                 message: response.UserConfirmed
@@ -72,8 +77,7 @@ export const signupUser = async (data: SignupRequest): Promise<SignupResponse> =
         } else if (error.name === "InvalidPasswordException") {
             throw new AppError(`Password does not meet requirements: ${error.message}`, 400);
         } else if (error.name === "AppError") {
-            // Re-throw custom AppErrors
-            throw error;
+            throw error; // Re-throw custom AppErrors
         } else {
             console.error("Cognito Signup Error:", error);
             throw new AppError(`Signup failed: ${error.message || 'Unknown error'}`, 500);
@@ -122,33 +126,52 @@ export const loginUser = async (data: LoginRequest): Promise<LoginResponse> => {
                 if (userIdFromToken) {
                     userProfile = await getUserProfileById(userIdFromToken);
                     if (!userProfile) {
-                        console.warn(`User profile not found in DB for Cognito sub: ${userIdFromToken}`);
+                        // --- START FIX for loginUser's userProfile creation error ---
+                        console.warn(`User profile not found in DB for Cognito sub: ${userIdFromToken}. Creating a fallback profile.`);
                         userProfile = {
                             userId: userIdFromToken,
                             username: usernameFromToken || data.email.split('@')[0],
                             email: data.email,
-                            createdAt: new Date().toISOString(),
-                            updatedAt: new Date().toISOString(),
+                            // When creating a UserProfile object directly that needs to conform to the interface,
+                            // PK and SK MUST be included. These will be added but not saved if this is just a fallback.
+                            PK: `USER#${userIdFromToken}`,
+                            SK: 'PROFILE',
+                            createdAt: new Date().toISOString(), // Or a default timestamp
+                            updatedAt: new Date().toISOString(), // Or a default timestamp
                         };
+                        // Note: If a profile is truly missing, you might want to
+                        // consider calling createUserProfile(userProfile) here as well
+                        // to ensure it's saved in the DB for future logins.
+                        // However, the current flow expects signup to always create it.
+                        // --- END FIX ---
                     }
                 }
             } catch (decodeError) {
                 console.error("Error decoding IdToken or fetching user profile:", decodeError);
+                // --- START FIX for loginUser's error in catch block ---
                 userProfile = {
                     userId: "unknown", // Fallback for unknown user ID
                     username: data.email.split('@')[0],
                     email: data.email,
+                    PK: 'USER#unknown', // Must include PK/SK for UserProfile type
+                    SK: 'PROFILE',
                     createdAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString(),
                 };
+                // --- END FIX ---
             }
+
+            // --- START FIX for loginUser's return userProfile type ---
+            // Ensure the userProfile returned to the client omits PK and SK.
+            const { PK, SK, ...profileForClient } = userProfile || {} as UserProfile; // Safely destructure
+            // --- END FIX ---
 
             return {
                 accessToken: AccessToken,
                 refreshToken: RefreshToken,
                 expiresIn: ExpiresIn,
                 idToken: IdToken,
-                userProfile: userProfile,
+                userProfile: profileForClient, // Return the profile without internal DynamoDB keys
             };
         } else if (response.ChallengeName) {
             throw new AppError(`Authentication requires challenge: ${response.ChallengeName}. Please complete the challenge via your client app.`, 403);
@@ -163,8 +186,7 @@ export const loginUser = async (data: LoginRequest): Promise<LoginResponse> => {
         } else if (error.name === "UserNotConfirmedException") {
             throw new AppError("User not confirmed. Please verify your account.", 403);
         } else if (error.name === "AppError" || error.name === "UnauthorizedError") {
-            // Re-throw custom AppErrors
-            throw error;
+            throw error; // Re-throw custom AppErrors
         } else {
             console.error("Cognito Login Error:", error);
             throw new AppError(`Login failed: ${error.message || 'Unknown error'}`, 500);
@@ -172,7 +194,6 @@ export const loginUser = async (data: LoginRequest): Promise<LoginResponse> => {
     }
 };
 
-// NEW: Function to confirm user signup
 export const confirmUser = async (data: ConfirmSignupRequest): Promise<{ message: string }> => {
     if (!CLIENT_ID) {
         console.error("Missing CLIENT_ID for confirm signup");
@@ -181,7 +202,7 @@ export const confirmUser = async (data: ConfirmSignupRequest): Promise<{ message
 
     try {
         const command = new ConfirmSignUpCommand({
-            ClientId: CLIENT_ID, // Use the regular Client ID for ConfirmSignUp
+            ClientId: CLIENT_ID,
             Username: data.email,
             ConfirmationCode: data.verificationCode,
         });
@@ -199,8 +220,7 @@ export const confirmUser = async (data: ConfirmSignupRequest): Promise<{ message
         } else if (error.name === "NotAuthorizedException") {
             throw new UnauthorizedError("User already confirmed or other authorization issue.");
         } else if (error.name === "AppError") {
-            // Re-throw custom AppErrors
-            throw error;
+            throw error; // Re-throw custom AppErrors
         } else {
             console.error("Confirm signup error:", error);
             throw new AppError(`Failed to confirm user: ${error.message || 'Unknown error'}`, 500);
