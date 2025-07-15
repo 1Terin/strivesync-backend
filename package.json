@@ -1,0 +1,36 @@
+{
+  "name": "strivesync-backend-api",
+  "version": "1.0.0",
+  "description": "StriveSync Serverless Backend API",
+  "main": "dist/index.js",
+  "scripts": {
+    "test": "jest",
+    "sam:build": "sam build --template template.yaml",
+    "sam:deploy": "sam deploy --template-file .aws-sam/build/template.yaml --stack-name StriveSyncBackendStack --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND --s3-bucket <YOUR_S3_BUCKET_FOR_DEPLOYMENT>",
+    "format": "prettier --write .",
+    "lint": "eslint .",
+    "sam:local:start-api": "sam local start-api --template .aws-sam/build/template.yaml --port 3000"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.x.x",
+    "@aws-sdk/client-dynamodb": "^3.x.x",
+    "@aws-sdk/lib-dynamodb": "^3.x.x",
+    "aws-lambda": "^1.0.7",
+    "uuid": "^9.x.x",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.x",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^20.19.8",
+    "@types/uuid": "^9.x.x",
+    "@typescript-eslint/eslint-plugin": "^6.x.x",
+    "@typescript-eslint/parser": "^6.x.x",
+    "esbuild": "^0.25.x",
+    "eslint": "^8.x.x",
+    "jest": "^29.7.0",
+    "prettier": "^2.x.x",
+    "ts-node": "^10.x.x",
+    "typescript": "^5.x.x"
+  }
+}

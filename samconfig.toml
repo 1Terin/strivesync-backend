@@ -1,0 +1,11 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "strivesync-backend-stack"
+resolve_s3 = true
+s3_prefix = "strivesync-backend-stack"
+region = "ap-south-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "CognitoUserPoolName=\"StriveSyncUserPool\" CognitoUserPoolClientName=\"StriveSyncWebAppClient\" CognitoUserPoolAdminClientName=\"StriveSyncAdminAppClient\" UsersTableName=\"StriveSyncUsers\""
+image_repositories = []

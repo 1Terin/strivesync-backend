@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "es2020",
+    "module": "commonjs",
+    "lib": ["es2020"],
+    "outDir": " ./build",
+    "rootDir": "./", // Root of this project
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "baseUrl": "./", // Allows absolute imports from project root
+    "paths": {
+      "api-types/*": ["api-types/*"],      // For copied api-types
+      "shared-utils/*": ["shared-utils/*"], // For copied shared-utils
+      "functions/*": ["functions/*"],
+      "common/*": ["common/*"]
+    }
+  },
+  "include": [
+    "functions/**/*.ts",
+    "common/**/*.ts",
+    "sam-templates/**/*.ts", // If you have TS helper scripts for SAM
+    "src/**/*.ts" // For copied shared files
+  ],
+  "exclude": ["node_modules", "dist", "tests"] // Exclude tests from main build, but include for IDE
+}

@@ -1,0 +1,214 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: StriveSync Backend API - Unified Stack (Auth, Users, Data)
+
+Parameters:
+  CognitoUserPoolName:
+    Type: String
+    Default: StriveSyncUserPool
+    Description: Name of the Cognito User Pool.
+  CognitoUserPoolClientName:
+    Type: String
+    Default: StriveSyncWebAppClient
+    Description: Name of the Cognito User Pool Client for web applications (client-side auth).
+  CognitoUserPoolAdminClientName:
+    Type: String
+    Default: StriveSyncAdminAppClient
+    Description: Name of the Cognito User Pool Client for admin/backend services.
+  UsersTableName:
+    Type: String
+    Default: StriveSyncUsers
+    Description: Name of the DynamoDB table for user profiles.
+
+Globals:
+  Function:
+    Runtime: nodejs18.x
+    Timeout: 30
+    MemorySize: 256
+    Tracing: Active
+    Environment:
+      Variables:
+        COGNITO_USER_POOL_ID: !Ref StriveSyncUserPool
+        COGNITO_CLIENT_ID: !Ref StriveSyncUserPoolClient
+        COGNITO_ADMIN_CLIENT_ID: !Ref StriveSyncUserPoolAdminClient
+        USERS_TABLE_NAME: !Ref UsersTable
+
+Resources:
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref UsersTableName
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      GlobalSecondaryIndexes:
+        - IndexName: EmailIndex
+          Projection:
+            ProjectionType: ALL
+          KeySchema:
+            - AttributeName: email
+              KeyType: HASH
+          ProvisionedThroughput:
+            ReadCapacityUnits: 1
+            WriteCapacityUnits: 1
+
+  StriveSyncUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Ref CognitoUserPoolName
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: preferred_username
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: '3'
+            MaxLength: '50'
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          RequireUppercase: true
+      MfaConfiguration: "OFF"
+
+  StriveSyncUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Ref CognitoUserPoolClientName
+      UserPoolId: !Ref StriveSyncUserPool
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      GenerateSecret: false
+
+  StriveSyncUserPoolAdminClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Ref CognitoUserPoolAdminClientName
+      UserPoolId: !Ref StriveSyncUserPool
+      ExplicitAuthFlows:
+        - ADMIN_NO_SRP_AUTH
+      GenerateSecret: false
+
+  SignupFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/auth/
+      Handler: handler.signupHandler
+      Policies:
+        - Statement:
+            Effect: Allow
+            Action:
+              - cognito-idp:SignUp
+              - cognito-idp:AdminRespondToAuthChallenge # Keep if you use Admin SRP Auth for signup
+            Resource: !GetAtt StriveSyncUserPool.Arn
+        - DynamoDBWritePolicy:
+            TableName: !Ref UsersTable
+      Events:
+        SignupApi:
+          Type: Api
+          Properties:
+            Path: /auth/signup
+            Method: post
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        External: ["@aws-sdk/*"]
+        Sourcemap: true
+
+  # --- NEW: Confirm Signup Function ---
+  ConfirmSignupFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/auth/
+      Handler: handler.confirmSignupHandler # This will be the new handler in handler.ts
+      Policies:
+        - Statement:
+            Effect: Allow
+            Action:
+              - cognito-idp:ConfirmSignUp
+              - cognito-idp:ResendConfirmationCode # Optional: if you want to add a resend code endpoint
+            Resource: !GetAtt StriveSyncUserPool.Arn
+      Events:
+        ConfirmSignupApi:
+          Type: Api
+          Properties:
+            Path: /auth/confirm-signup
+            Method: post
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        External: ["@aws-sdk/*"]
+        Sourcemap: true
+  # --- END NEW: Confirm Signup Function ---
+
+  LoginFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/auth/
+      Handler: handler.loginHandler
+      Policies:
+        - Statement:
+            Effect: Allow
+            Action:
+              - cognito-idp:AdminInitiateAuth
+              - cognito-idp:AdminGetUser
+            Resource: !GetAtt StriveSyncUserPool.Arn
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        LoginApi:
+          Type: Api
+          Properties:
+            Path: /auth/login
+            Method: post
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        External: ["@aws-sdk/*"]
+        Sourcemap: true
+
+Outputs:
+  ApiGatewayEndpoint:
+    Description: "API Gateway endpoint URL for all functions"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
+
+  StriveSyncUserPoolId:
+    Description: "ID of the StriveSync Cognito User Pool"
+    Value: !Ref StriveSyncUserPool
+
+  StriveSyncUserPoolClient:
+    Description: "ID of the Cognito User Pool Client (Web/Mobile App)"
+    Value: !Ref StriveSyncUserPoolClient
+
+  StriveSyncUserPoolAdminClient:
+    Description: "ID of the Cognito User Pool Admin Client (Backend)"
+    Value: !Ref StriveSyncUserPoolAdminClient
+
+  UsersTableName:
+    Description: "Name of the DynamoDB Users table"
+    Value: !Ref UsersTable
