@@ -1,4 +1,4 @@
-// common/utils/index.ts
+// common/utils.ts
 
 export const parseBody = <T>(body: string | null): T => {
   if (!body) {

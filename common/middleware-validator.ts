@@ -1,4 +1,4 @@
-// common/middleware/validator.ts
+// common/middleware-validator.ts
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { ZodSchema, ZodError } from 'zod';
 import { ValidationError, handleErrorResponse } from 'common/errors';

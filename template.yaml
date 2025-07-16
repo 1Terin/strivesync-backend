@@ -209,6 +209,47 @@ Resources:
                 type: aws_proxy
           # --- END POST /auth/login PATH ---
 
+          # --- START HABITS PATHS ---
+          /habits:
+            # --- POST /habits PATH (Create Habit) ---
+            post:
+              requestBody:
+                required: true
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        habitName: { type: string }
+                        reminderTime: { type: string } # e.g., "07:00"
+                        isPublic: { type: boolean }
+                      required: [habitName] # reminderTime and isPublic can be optional or have defaults
+              responses:
+                "201": # Changed to 201 for Created
+                  description: Create habit response
+              x-amazon-apigateway-integration:
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CreateHabitFunction.Arn}/invocations
+                httpMethod: POST
+                type: aws_proxy
+              security:
+                - CognitoAuth: [] # Requires authentication
+            # --- END POST /habits PATH ---
+
+            # --- GET /habits PATH (List Habits) ---
+            get:
+              responses:
+                "200":
+                  description: List user habits response
+              x-amazon-apigateway-integration:
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ListHabitsFunction.Arn}/invocations
+                httpMethod: POST
+                type: aws_proxy
+              security:
+                - CognitoAuth: [] # Requires authentication
+          # --- END HABITS PATHS ---
+
         components:
           securitySchemes:
             # --- Cognito Authorizer Definition ---
@@ -345,7 +386,55 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/*/*"
 
-  # --- END FUNCTION DEFINITIONS ---
+  # --- START HABIT FUNCTION DEFINITIONS ---
+  CreateHabitFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/habits/
+      Handler: handler.createHabitHandler
+      Policies:
+        - DynamoDBWritePolicy:
+            TableName: !Ref UsersTable # Habits are stored in UsersTable
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        External: ["@aws-sdk/*"]
+        Sourcemap: true
+
+  CreateHabitFunctionApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt CreateHabitFunction.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/*/*"
+
+  ListHabitsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/habits/
+      Handler: handler.listHabitsHandler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable # Habits are stored in UsersTable
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        External: ["@aws-sdk/*"]
+        Sourcemap: true
+
+  ListHabitsFunctionApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt ListHabitsFunction.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/*/*"
+  # --- END HABIT FUNCTION DEFINITIONS ---
 
 Outputs:
   ApiGatewayEndpoint:
