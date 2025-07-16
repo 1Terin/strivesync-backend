@@ -2,7 +2,7 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { parseBody, createApiResponse } from 'common/utils';
 import { handleErrorResponse } from 'common/errors';
-import { validateBody } from 'common/middleware/validator';
+import { validateBody } from 'common/middleware-validator';
 import { LoginRequestSchema, SignupRequestSchema, ConfirmSignupRequestSchema } from 'functions/auth/authschema';
 import { loginUser, signupUser, confirmUser } from 'functions/auth/authservice';
 import { LoginRequest, SignupRequest, ConfirmSignupRequest } from 'api-types/auth';

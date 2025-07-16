@@ -1,5 +1,3 @@
-# template.yaml
-
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: StriveSync Backend API - Unified Stack (Auth, Users, Data)
@@ -40,22 +38,18 @@ Resources:
     Type: AWS::DynamoDB::Table
     Properties:
       TableName: !Ref UsersTableName
-      # --- START CHANGE: Update AttributeDefinitions for PK/SK ---
       AttributeDefinitions:
         - AttributeName: PK
           AttributeType: S
         - AttributeName: SK
           AttributeType: S
-        - AttributeName: email # Keep email for the GSI
+        - AttributeName: email
           AttributeType: S
-      # --- END CHANGE ---
-      # --- START CHANGE: Update KeySchema for PK/SK ---
       KeySchema:
         - AttributeName: PK
           KeyType: HASH
         - AttributeName: SK
           KeyType: RANGE
-      # --- END CHANGE ---
       ProvisionedThroughput:
         ReadCapacityUnits: 1
         WriteCapacityUnits: 1
@@ -118,6 +112,119 @@ Resources:
         - ADMIN_NO_SRP_AUTH
       GenerateSecret: false
 
+  # --- START API GATEWAY DEFINITION WITH ALL PATHS (DefinitionBody) ---
+  ServerlessRestApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: StriveSyncApi
+      StageName: Prod
+      DefinitionBody:
+        openapi: "3.0.1"
+        info:
+          title: StriveSync API
+          version: "1.0"
+        paths:
+          # --- GET /users/me PATH ---
+          /users/me:
+            get:
+              responses:
+                "200":
+                  description: Get user profile
+              x-amazon-apigateway-integration:
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetUserProfileFunction.Arn}/invocations
+                httpMethod: POST # Correct for Lambda proxy integration
+                type: aws_proxy
+              security:
+                - CognitoAuth: [] # Applies the Cognito Authorizer
+          # --- END GET /users/me PATH ---
+
+          # --- POST /auth/signup PATH ---
+          /auth/signup:
+            post:
+              requestBody:
+                required: true
+                content:
+                  application/json:
+                    schema: # Placeholder for SignupRequest schema
+                      type: object
+                      properties:
+                        email: { type: string }
+                        password: { type: string }
+                        username: { type: string }
+                      required: [email, password, username]
+              responses:
+                "200":
+                  description: User signup response
+              x-amazon-apigateway-integration:
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SignupFunction.Arn}/invocations
+                httpMethod: POST
+                type: aws_proxy
+          # --- END POST /auth/signup PATH ---
+
+          # --- POST /auth/confirm-signup PATH ---
+          /auth/confirm-signup:
+            post:
+              requestBody:
+                required: true
+                content:
+                  application/json:
+                    schema: # Placeholder for ConfirmSignupRequest schema
+                      type: object
+                      properties:
+                        email: { type: string }
+                        verificationCode: { type: string }
+                      required: [email, verificationCode]
+              responses:
+                "200":
+                  description: Confirm signup response
+              x-amazon-apigateway-integration:
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ConfirmSignupFunction.Arn}/invocations
+                httpMethod: POST
+                type: aws_proxy
+          # --- END POST /auth/confirm-signup PATH ---
+
+          # --- POST /auth/login PATH ---
+          /auth/login:
+            post:
+              requestBody:
+                required: true
+                content:
+                  application/json:
+                    schema: # Placeholder for LoginRequest schema
+                      type: object
+                      properties:
+                        email: { type: string }
+                        password: { type: string }
+                      required: [email, password]
+              responses:
+                "200":
+                  description: Login response
+              x-amazon-apigateway-integration:
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LoginFunction.Arn}/invocations
+                httpMethod: POST
+                type: aws_proxy
+          # --- END POST /auth/login PATH ---
+
+        components:
+          securitySchemes:
+            # --- Cognito Authorizer Definition ---
+            CognitoAuth:
+              type: apiKey
+              name: Authorization
+              in: header
+              x-amazon-apigateway-authtype: cognito_user_pools
+              x-amazon-apigateway-authorizer:
+                type: cognito_user_pools
+                providerARNs:
+                  - !GetAtt StriveSyncUserPool.Arn
+            # --- END Cognito Authorizer Definition ---
+  # --- END API GATEWAY DEFINITION WITH ALL PATHS ---
+
+  # --- START FUNCTION DEFINITIONS (NO API Events here when using DefinitionBody) ---
   SignupFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -132,12 +239,7 @@ Resources:
             Resource: !GetAtt StriveSyncUserPool.Arn
         - DynamoDBWritePolicy:
             TableName: !Ref UsersTable
-      Events:
-        SignupApi:
-          Type: Api
-          Properties:
-            Path: /auth/signup
-            Method: post
+      # Events removed as defined in ServerlessRestApi.DefinitionBody
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -145,6 +247,15 @@ Resources:
         Target: "es2020"
         External: ["@aws-sdk/*"]
         Sourcemap: true
+
+  # --- ADDED: API Gateway permission to invoke SignupFunction ---
+  SignupFunctionApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt SignupFunction.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/*/*" # Allows any method/path on this API
 
   ConfirmSignupFunction:
     Type: AWS::Serverless::Function
@@ -158,12 +269,7 @@ Resources:
               - cognito-idp:ConfirmSignUp
               - cognito-idp:ResendConfirmationCode
             Resource: !GetAtt StriveSyncUserPool.Arn
-      Events:
-        ConfirmSignupApi:
-          Type: Api
-          Properties:
-            Path: /auth/confirm-signup
-            Method: post
+      # Events removed
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -171,6 +277,15 @@ Resources:
         Target: "es2020"
         External: ["@aws-sdk/*"]
         Sourcemap: true
+
+  # --- ADDED: API Gateway permission to invoke ConfirmSignupFunction ---
+  ConfirmSignupFunctionApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt ConfirmSignupFunction.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/*/*"
 
   LoginFunction:
     Type: AWS::Serverless::Function
@@ -186,12 +301,7 @@ Resources:
             Resource: !GetAtt StriveSyncUserPool.Arn
         - DynamoDBReadPolicy:
             TableName: !Ref UsersTable
-      Events:
-        LoginApi:
-          Type: Api
-          Properties:
-            Path: /auth/login
-            Method: post
+      # Events removed
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -199,6 +309,43 @@ Resources:
         Target: "es2020"
         External: ["@aws-sdk/*"]
         Sourcemap: true
+
+  # --- ADDED: API Gateway permission to invoke LoginFunction ---
+  LoginFunctionApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt LoginFunction.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/*/*"
+
+  GetUserProfileFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/users/
+      Handler: handler.getUserProfileHandler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+      # Events removed
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        External: ["@aws-sdk/*"]
+        Sourcemap: true
+
+  # --- ADDED: API Gateway permission to invoke GetUserProfileFunction ---
+  GetUserProfileFunctionApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt GetUserProfileFunction.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/*/*"
+
+  # --- END FUNCTION DEFINITIONS ---
 
 Outputs:
   ApiGatewayEndpoint:
