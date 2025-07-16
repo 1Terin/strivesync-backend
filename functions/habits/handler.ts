@@ -1,3 +1,4 @@
+// functions/habits/habithandler.ts
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { HabitService } from './habitservice';
 import { getUserIdFromEvent } from '../../common/auth';

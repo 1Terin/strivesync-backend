@@ -1,4 +1,4 @@
-// strivesync-backend-api/api-types/habits.d.ts
+// api-types/habits.d.ts
 
 /**
  * Interface for the request body when creating a new habit.

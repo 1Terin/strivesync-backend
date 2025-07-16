@@ -1,4 +1,4 @@
-// api-types/users.ts (UPDATE THIS FILE)
+// api-types/users.d.ts (UPDATE THIS FILE)
 
 export interface UserProfile {
     // DynamoDB PK and SK for user items - THESE ARE NEW

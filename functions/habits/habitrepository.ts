@@ -1,3 +1,4 @@
+// functions/habits/habitrepository.ts
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { AppError } from '../../common/errors';

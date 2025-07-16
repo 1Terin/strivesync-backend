@@ -1,3 +1,4 @@
+// functions/habits/habitservice.ts
 import { HabitRepository } from './habitrepository';
 import { AppError } from '../../common/errors';
 import { v4 as uuidv4 } from 'uuid'; // For generating unique habit IDs

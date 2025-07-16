@@ -1,4 +1,4 @@
-// src/api-types/auth.d.ts
+// api-types/auth.d.ts
 export interface LoginRequest {
   email: string;
   password: string;
