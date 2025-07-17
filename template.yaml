@@ -55,7 +55,6 @@ Resources:
           AttributeType: S
         - AttributeName: gsi3pk # GSI3 attributes
           AttributeType: S
-          AttributeType: S
         - AttributeName: gsi3sk
           AttributeType: S
         # --- NEW GSI ATTRIBUTE DEFINITIONS for GSI4 ONLY ---
@@ -181,7 +180,7 @@ Resources:
         - ADMIN_NO_SRP_AUTH
       GenerateSecret: false
 
-  # --- START API GATEWAY DEFINITION WITH ALL PATHS (DefinitionBody) ---
+  ## API Gateway Definition
   ServerlessRestApi:
     Type: AWS::Serverless::Api
     Properties:
@@ -329,14 +328,66 @@ Resources:
                 httpMethod: POST
                 type: aws_proxy
               # No 'security' block here means it's publicly accessible.
-              # If you wanted authenticated but not mandatory:
-              # security:
-              #   - CognitoAuth: []
-              #   x-amazon-apigateway-auth:
-              #     type: 'NONE' # To override global auth if applies
           # --- END NEW PATH ---
-          # --- END HABITS PATHS ---
 
+          # --- NEW HABIT PATHS: /habits/{habitId} (Update and Delete) ---
+          '/habits/{habitId}':
+            # --- PUT /habits/{habitId} (Update Habit) ---
+            put:
+              parameters:
+                - name: habitId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+              requestBody:
+                required: true
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        habitName: { type: string }
+                        reminderTime: { type: string } # e.g., "07:00"
+                        isPublic: { type: boolean }
+                      # Allow partial updates: no properties are "required" in the body for PUT
+              responses:
+                "200":
+                  description: Update habit response
+                "404":
+                  description: Habit not found
+              x-amazon-apigateway-integration:
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UpdateHabitFunction.Arn}/invocations
+                httpMethod: POST
+                type: aws_proxy
+              security:
+                - CognitoAuth: [] # Requires authentication
+            # --- END PUT /habits/{habitId} ---
+
+            # --- DELETE /habits/{habitId} (Delete Habit) ---
+            delete:
+              parameters:
+                - name: habitId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+              responses:
+                "204": # 204 No Content for successful deletion
+                  description: Delete habit response
+                "404":
+                  description: Habit not found
+              x-amazon-apigateway-integration:
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DeleteHabitFunction.Arn}/invocations
+                httpMethod: POST
+                type: aws_proxy
+              security:
+                - CognitoAuth: [] # Requires authentication
+            # --- END DELETE /habits/{habitId} ---
+          # --- END NEW HABIT PATHS ---
+          # --- END HABITS PATHS ---
 
         components:
           securitySchemes:
@@ -353,7 +404,7 @@ Resources:
             # --- END Cognito Authorizer Definition ---
   # --- END API GATEWAY DEFINITION WITH ALL PATHS ---
 
-  # --- START FUNCTION DEFINITIONS (NO API Events here when using DefinitionBody) ---
+  ## Lambda Function Definitions
   SignupFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -368,7 +419,6 @@ Resources:
             Resource: !GetAtt StriveSyncUserPool.Arn
         - DynamoDBWritePolicy:
             TableName: !Ref UsersTable
-      # Events removed as defined in ServerlessRestApi.DefinitionBody
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -377,14 +427,15 @@ Resources:
         External: ["@aws-sdk/*"]
         Sourcemap: true
 
-  # --- ADDED: API Gateway permission to invoke SignupFunction ---
+  # --- UPDATED: API Gateway permission to invoke SignupFunction ---
+  # Specific to POST /auth/signup
   SignupFunctionApiPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !GetAtt SignupFunction.Arn
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/*/*" # Allows any method/path on this API
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/Prod/POST/auth/signup"
 
   ConfirmSignupFunction:
     Type: AWS::Serverless::Function
@@ -398,7 +449,6 @@ Resources:
               - cognito-idp:ConfirmSignUp
               - cognito-idp:ResendConfirmationCode
             Resource: !GetAtt StriveSyncUserPool.Arn
-      # Events removed
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -407,14 +457,15 @@ Resources:
         External: ["@aws-sdk/*"]
         Sourcemap: true
 
-  # --- ADDED: API Gateway permission to invoke ConfirmSignupFunction ---
+  # --- UPDATED: API Gateway permission to invoke ConfirmSignupFunction ---
+  # Specific to POST /auth/confirm-signup
   ConfirmSignupFunctionApiPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !GetAtt ConfirmSignupFunction.Arn
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/*/*"
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/Prod/POST/auth/confirm-signup"
 
   LoginFunction:
     Type: AWS::Serverless::Function
@@ -430,7 +481,6 @@ Resources:
             Resource: !GetAtt StriveSyncUserPool.Arn
         - DynamoDBReadPolicy:
             TableName: !Ref UsersTable
-      # Events removed
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -439,14 +489,15 @@ Resources:
         External: ["@aws-sdk/*"]
         Sourcemap: true
 
-  # --- ADDED: API Gateway permission to invoke LoginFunction ---
+  # --- UPDATED: API Gateway permission to invoke LoginFunction ---
+  # Specific to POST /auth/login
   LoginFunctionApiPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !GetAtt LoginFunction.Arn
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/*/*"
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/Prod/POST/auth/login"
 
   GetUserProfileFunction:
     Type: AWS::Serverless::Function
@@ -456,7 +507,6 @@ Resources:
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref UsersTable
-      # Events removed
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -465,14 +515,15 @@ Resources:
         External: ["@aws-sdk/*"]
         Sourcemap: true
 
-  # --- ADDED: API Gateway permission to invoke GetUserProfileFunction ---
+  # --- UPDATED: API Gateway permission to invoke GetUserProfileFunction ---
+  # Specific to GET /users/me
   GetUserProfileFunctionApiPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !GetAtt GetUserProfileFunction.Arn
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/*/*"
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/Prod/GET/users/me"
 
   # --- START HABIT FUNCTION DEFINITIONS ---
   CreateHabitFunction:
@@ -483,7 +534,6 @@ Resources:
       Policies:
         - DynamoDBWritePolicy:
             TableName: !Ref UsersTable # Habits are stored in UsersTable
-      # Events removed
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -492,13 +542,15 @@ Resources:
         External: ["@aws-sdk/*"]
         Sourcemap: true
 
+  # --- UPDATED: API Gateway permission to invoke CreateHabitFunction ---
+  # Specific to POST /habits
   CreateHabitFunctionApiPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !GetAtt CreateHabitFunction.Arn
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/*/*"
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/Prod/POST/habits"
 
   ListHabitsFunction:
     Type: AWS::Serverless::Function
@@ -508,7 +560,6 @@ Resources:
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref UsersTable # Habits are stored in UsersTable
-      # Events removed
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -517,32 +568,25 @@ Resources:
         External: ["@aws-sdk/*"]
         Sourcemap: true
 
+  # --- UPDATED: API Gateway permission to invoke ListHabitsFunction ---
+  # Specific to GET /habits
   ListHabitsFunctionApiPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !GetAtt ListHabitsFunction.Arn
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/*/*"
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/Prod/GET/habits"
 
   ListPublicHabitsFunction:
     Type: AWS::Serverless::Function
     Properties:
-      # FunctionName: ${self:custom.stage}-list-public-habits-function # Removed as SAM generates a name
-      CodeUri: functions/habits/ # Added CodeUri
+      CodeUri: functions/habits/
       Handler: handler.listPublicHabitsHandler
-      # Runtime and MemorySize/Timeout moved to Globals, or can be specified if different
-      # Runtime: nodejs20.x
-      # MemorySize: 128
-      # Timeout: 10
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref UsersTable
-      # Environment: # Environment variables are inherited from Globals, or can be added if specific
-      #   Variables:
-      #     USERS_TABLE_NAME: !Ref UsersTable
-      # Events block removed as it's defined in ServerlessRestApi.DefinitionBody
-    Metadata: # Added Metadata for build properties
+    Metadata:
       BuildMethod: esbuild
       BuildProperties:
         Minify: true
@@ -550,14 +594,78 @@ Resources:
         External: ["@aws-sdk/*"]
         Sourcemap: true
 
-  # NEW PERMISSION: API Gateway permission to invoke ListPublicHabitsFunction
+  # --- UPDATED: API Gateway permission to invoke ListPublicHabitsFunction ---
+  # Specific to GET /habits/public
   ListPublicHabitsFunctionApiPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !GetAtt ListPublicHabitsFunction.Arn
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/*/*"
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/Prod/GET/habits/public"
+
+  # --- NEW FUNCTION: UpdateHabitFunction ---
+  UpdateHabitFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/habits/
+      Handler: handler.updateHabitHandler
+      Policies:
+        - DynamoDBWritePolicy: # Needs write permission for update
+            TableName: !Ref UsersTable
+        - DynamoDBReadPolicy: # Needs read permission for GetItem
+            TableName: !Ref UsersTable
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        External: ["@aws-sdk/*"]
+        Sourcemap: true
+
+  # --- NEW PERMISSION: API Gateway permission to invoke UpdateHabitFunction ---
+  # Specific to PUT /habits/{habitId}
+  UpdateHabitFunctionApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt UpdateHabitFunction.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/Prod/PUT/habits/*"
+
+  # --- NEW FUNCTION: DeleteHabitFunction ---
+  DeleteHabitFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/habits/
+      Handler: handler.deleteHabitHandler
+      Policies:
+        - DynamoDBWritePolicy: # Needs write permission for delete
+            TableName: !Ref UsersTable
+        - DynamoDBReadPolicy: # Needs read permission for GetItem
+            TableName: !Ref UsersTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:DeleteItem
+              Resource: !GetAtt UsersTable.Arn    
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        External: ["@aws-sdk/*"]
+        Sourcemap: true
+
+  # --- NEW PERMISSION: API Gateway permission to invoke DeleteHabitFunction ---
+  # Specific to DELETE /habits/{habitId}
+  DeleteHabitFunctionApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt DeleteHabitFunction.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/Prod/DELETE/habits/*"
   # --- END HABIT FUNCTION DEFINITIONS ---
 
 

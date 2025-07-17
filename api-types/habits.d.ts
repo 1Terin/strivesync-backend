@@ -32,7 +32,7 @@ export interface Habit {
 
 /**
  * Interface for the response body when a habit is successfully created.
- * The 'habit' returned to the client should omit PK/SK.
+ * The 'habit' returned to the client should omit PK/SK/GSI attributes.
  */
 export interface CreateHabitResponse {
     message: string;
@@ -41,8 +41,34 @@ export interface CreateHabitResponse {
 
 /**
  * Interface for the response body when listing habits.
- * Habits returned to the client should omit PK/SK.
+ * Habits returned to the client should omit PK/SK/GSI attributes.
  */
 export interface ListHabitsResponse {
     habits: Omit<Habit, 'PK' | 'SK' | 'gsi1pk' | 'gsi1sk'>[]; // Omit internal DB keys
+}
+
+/**
+ * Interface for the request body when updating an existing habit.
+ * All fields are optional as it's a partial update.
+ */
+export interface UpdateHabitRequest {
+    habitName?: string;
+    reminderTime?: string | null;
+    isPublic?: boolean;
+}
+
+/**
+ * Interface for the response body when a habit is successfully updated.
+ * The 'updatedHabit' returned to the client should omit PK/SK/GSI attributes.
+ */
+export interface UpdateHabitResponse {
+    message: string;
+    updatedHabit: Omit<Habit, 'PK' | 'SK' | 'gsi1pk' | 'gsi1sk'>; // Omit internal DB keys
+}
+
+/**
+ * Interface for the response body when a habit is successfully deleted.
+ */
+export interface DeleteHabitResponse {
+    message: string;
 }
