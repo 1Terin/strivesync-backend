@@ -10,28 +10,39 @@ export interface CreateHabitRequest {
 }
 
 /**
- * Interface for a Habit item as stored in DynamoDB or returned by the API.
+ * Interface for a Habit item as stored in DynamoDB.
+ * This now includes PK, SK, and GSI attributes for consistency.
  */
 export interface Habit {
+    PK: string; // Format: USER#<userId>
+    SK: string; // Format: HABIT#<habitId>
+
     habitId: string;
-    userId: string; // The user who owns this habit (from PK)
+    userId: string; // The user who owns this habit
     habitName: string;
     reminderTime: string | null; // e.g., "07:00"
     isPublic: boolean;
     createdAt: string; // ISO 8601 string
+    updatedAt: string; // For general good practice
+
+    // GSI attributes for public habits
+    gsi1pk?: string; // Will be 'PUBLIC_HABIT' if isPublic is true
+    gsi1sk?: string; // Will be 'CREATED_AT#<createdAt>#HABIT#<habitId>' if isPublic is true
 }
 
 /**
  * Interface for the response body when a habit is successfully created.
+ * The 'habit' returned to the client should omit PK/SK.
  */
 export interface CreateHabitResponse {
     message: string;
-    habit: Habit;
+    habit: Omit<Habit, 'PK' | 'SK' | 'gsi1pk' | 'gsi1sk'>; // Omit internal DB keys
 }
 
 /**
  * Interface for the response body when listing habits.
+ * Habits returned to the client should omit PK/SK.
  */
 export interface ListHabitsResponse {
-    habits: Habit[];
+    habits: Omit<Habit, 'PK' | 'SK' | 'gsi1pk' | 'gsi1sk'>[]; // Omit internal DB keys
 }
