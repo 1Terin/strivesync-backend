@@ -277,7 +277,7 @@ Resources:
                 type: aws_proxy
           # --- END POST /auth/login PATH ---
 
-          # --- START HABITS PATHS ---
+          # --- START HABITS PATHS (ALL NOW POINT TO HabitsFunction) ---
           /habits:
             # --- POST /habits PATH (Create Habit) ---
             post:
@@ -291,31 +291,30 @@ Resources:
                         habitName: { type: string }
                         reminderTime: { type: string } # e.g., "07:00"
                         isPublic: { type: boolean }
-                      required: [habitName] # reminderTime and isPublic can be optional or have defaults
+                      required: [habitName]
               responses:
-                "201": # Changed to 201 for Created
+                "201":
                   description: Create habit response
               x-amazon-apigateway-integration:
                 uri:
-                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CreateHabitFunction.Arn}/invocations
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${HabitsFunction.Arn}/invocations
                 httpMethod: POST
                 type: aws_proxy
               security:
                 - CognitoAuth: [] # Requires authentication
-            # --- END POST /habits PATH ---
-
-            # --- GET /habits PATH (List Habits) ---
+            # --- GET /habits PATH (List User Habits) ---
             get:
               responses:
                 "200":
                   description: List user habits response
               x-amazon-apigateway-integration:
                 uri:
-                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ListHabitsFunction.Arn}/invocations
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${HabitsFunction.Arn}/invocations
                 httpMethod: POST
                 type: aws_proxy
               security:
                 - CognitoAuth: [] # Requires authentication
+          
           # --- NEW PATH: GET /habits/public (List Public Habits) ---
           /habits/public:
             get:
@@ -324,22 +323,21 @@ Resources:
                   description: List all public habits response
               x-amazon-apigateway-integration:
                 uri:
-                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ListPublicHabitsFunction.Arn}/invocations
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${HabitsFunction.Arn}/invocations
                 httpMethod: POST
                 type: aws_proxy
               # No 'security' block here means it's publicly accessible.
-          # --- END NEW PATH ---
 
-          # --- NEW HABIT PATHS: /habits/{habitId} (Update and Delete) ---
+          # --- HABIT PATHS: /habits/{habitId} (Update and Delete) ---
           '/habits/{habitId}':
+            parameters: # Define habitId parameter once for this path
+              - name: habitId
+                in: path
+                required: true
+                schema:
+                  type: string
             # --- PUT /habits/{habitId} (Update Habit) ---
             put:
-              parameters:
-                - name: habitId
-                  in: path
-                  required: true
-                  schema:
-                    type: string
               requestBody:
                 required: true
                 content:
@@ -348,7 +346,7 @@ Resources:
                       type: object
                       properties:
                         habitName: { type: string }
-                        reminderTime: { type: string } # e.g., "07:00"
+                        reminderTime: { type: string, nullable: true } # allow null for reminderTime
                         isPublic: { type: boolean }
                       # Allow partial updates: no properties are "required" in the body for PUT
               responses:
@@ -358,21 +356,13 @@ Resources:
                   description: Habit not found
               x-amazon-apigateway-integration:
                 uri:
-                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UpdateHabitFunction.Arn}/invocations
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${HabitsFunction.Arn}/invocations
                 httpMethod: POST
                 type: aws_proxy
               security:
                 - CognitoAuth: [] # Requires authentication
-            # --- END PUT /habits/{habitId} ---
-
             # --- DELETE /habits/{habitId} (Delete Habit) ---
             delete:
-              parameters:
-                - name: habitId
-                  in: path
-                  required: true
-                  schema:
-                    type: string
               responses:
                 "204": # 204 No Content for successful deletion
                   description: Delete habit response
@@ -380,13 +370,11 @@ Resources:
                   description: Habit not found
               x-amazon-apigateway-integration:
                 uri:
-                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DeleteHabitFunction.Arn}/invocations
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${HabitsFunction.Arn}/invocations
                 httpMethod: POST
                 type: aws_proxy
               security:
                 - CognitoAuth: [] # Requires authentication
-            # --- END DELETE /habits/{habitId} ---
-          # --- END NEW HABIT PATHS ---
           # --- END HABITS PATHS ---
 
         components:
@@ -525,15 +513,27 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/Prod/GET/users/me"
 
-  # --- START HABIT FUNCTION DEFINITIONS ---
-  CreateHabitFunction:
+  # --- NEW CONSOLIDATED HABITS FUNCTION DEFINITION ---
+  HabitsFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: functions/habits/
-      Handler: handler.createHabitHandler
+      Handler: handler.handler # Points to the single 'handler' export
       Policies:
+        # Needs read and write permissions for habits table
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
         - DynamoDBWritePolicy:
-            TableName: !Ref UsersTable # Habits are stored in UsersTable
+            TableName: !Ref UsersTable
+        # Specifically allow DeleteItem for the delete operation
+        - Statement:
+            Effect: Allow
+            Action:
+              - dynamodb:DeleteItem
+            Resource: !GetAtt UsersTable.Arn
+        # If your 'updateHabit' policy in the repository needs to explicitly read the current item,
+        # ensure DynamoDBReadPolicy is sufficient or add specific GetItem permission.
+        # DynamoDBReadPolicy covers GetItem, Query, Scan. DynamoDBWritePolicy covers PutItem, UpdateItem, DeleteItem.
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -542,132 +542,48 @@ Resources:
         External: ["@aws-sdk/*"]
         Sourcemap: true
 
-  # --- UPDATED: API Gateway permission to invoke CreateHabitFunction ---
-  # Specific to POST /habits
-  CreateHabitFunctionApiPermission:
+  # --- API Gateway Permissions for the CONSOLIDATED HabitsFunction ---
+  # Allows API Gateway to invoke the HabitsFunction for all relevant paths/methods
+  HabitsFunctionApiPermissionPostHabits:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !GetAtt CreateHabitFunction.Arn
+      FunctionName: !GetAtt HabitsFunction.Arn
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/Prod/POST/habits"
 
-  ListHabitsFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: functions/habits/
-      Handler: handler.listHabitsHandler
-      Policies:
-        - DynamoDBReadPolicy:
-            TableName: !Ref UsersTable # Habits are stored in UsersTable
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        Minify: true
-        Target: "es2020"
-        External: ["@aws-sdk/*"]
-        Sourcemap: true
-
-  # --- UPDATED: API Gateway permission to invoke ListHabitsFunction ---
-  # Specific to GET /habits
-  ListHabitsFunctionApiPermission:
+  HabitsFunctionApiPermissionGetHabits:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !GetAtt ListHabitsFunction.Arn
+      FunctionName: !GetAtt HabitsFunction.Arn
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/Prod/GET/habits"
 
-  ListPublicHabitsFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: functions/habits/
-      Handler: handler.listPublicHabitsHandler
-      Policies:
-        - DynamoDBReadPolicy:
-            TableName: !Ref UsersTable
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        Minify: true
-        Target: "es2020"
-        External: ["@aws-sdk/*"]
-        Sourcemap: true
-
-  # --- UPDATED: API Gateway permission to invoke ListPublicHabitsFunction ---
-  # Specific to GET /habits/public
-  ListPublicHabitsFunctionApiPermission:
+  HabitsFunctionApiPermissionGetPublicHabits:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !GetAtt ListPublicHabitsFunction.Arn
+      FunctionName: !GetAtt HabitsFunction.Arn
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/Prod/GET/habits/public"
 
-  # --- NEW FUNCTION: UpdateHabitFunction ---
-  UpdateHabitFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: functions/habits/
-      Handler: handler.updateHabitHandler
-      Policies:
-        - DynamoDBWritePolicy: # Needs write permission for update
-            TableName: !Ref UsersTable
-        - DynamoDBReadPolicy: # Needs read permission for GetItem
-            TableName: !Ref UsersTable
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        Minify: true
-        Target: "es2020"
-        External: ["@aws-sdk/*"]
-        Sourcemap: true
-
-  # --- NEW PERMISSION: API Gateway permission to invoke UpdateHabitFunction ---
-  # Specific to PUT /habits/{habitId}
-  UpdateHabitFunctionApiPermission:
+  HabitsFunctionApiPermissionPutHabitById:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !GetAtt UpdateHabitFunction.Arn
+      FunctionName: !GetAtt HabitsFunction.Arn
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/Prod/PUT/habits/*"
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/Prod/PUT/habits/*" # Note the wildcard for path parameter
 
-  # --- NEW FUNCTION: DeleteHabitFunction ---
-  DeleteHabitFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: functions/habits/
-      Handler: handler.deleteHabitHandler
-      Policies:
-        - DynamoDBWritePolicy: # Needs write permission for delete
-            TableName: !Ref UsersTable
-        - DynamoDBReadPolicy: # Needs read permission for GetItem
-            TableName: !Ref UsersTable
-        - Statement:
-            - Effect: Allow
-              Action:
-                - dynamodb:DeleteItem
-              Resource: !GetAtt UsersTable.Arn    
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        Minify: true
-        Target: "es2020"
-        External: ["@aws-sdk/*"]
-        Sourcemap: true
-
-  # --- NEW PERMISSION: API Gateway permission to invoke DeleteHabitFunction ---
-  # Specific to DELETE /habits/{habitId}
-  DeleteHabitFunctionApiPermission:
+  HabitsFunctionApiPermissionDeleteHabitById:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !GetAtt DeleteHabitFunction.Arn
+      FunctionName: !GetAtt HabitsFunction.Arn
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/Prod/DELETE/habits/*"
-  # --- END HABIT FUNCTION DEFINITIONS ---
-
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/Prod/DELETE/habits/*" # Note the wildcard for path parameter
+  # --- END CONSOLIDATED HABITS FUNCTION DEFINITION AND PERMISSIONS ---
 
 Outputs:
   ApiGatewayEndpoint:

@@ -19,6 +19,7 @@ export class HabitRepository {
         const command = new PutCommand({
             TableName: USERS_TABLE_NAME,
             Item: habit,
+            ConditionExpression: 'attribute_not_exists(PK)',
         });
 
         try {
