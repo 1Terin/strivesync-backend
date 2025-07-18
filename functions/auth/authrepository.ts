@@ -28,9 +28,6 @@ export const createUserProfile = async (userProfileData: Omit<UserProfile, 'PK' 
     return newUserProfile;
 };
 
-// Updated to use PK/SK for retrieving by ID
-// IMPORTANT: We will move this function to functions/users/userRepository.ts later.
-// For now, we update it here so LoginFunction can work with the new schema.
 export const getUserProfileById = async (userId: string): Promise<UserProfile | undefined> => {
     if (!TABLE_NAME) {
         throw new Error("USERS_TABLE_NAME is not set.");

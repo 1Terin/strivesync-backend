@@ -2,11 +2,6 @@
 
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { HabitService } from './habitservice';
-// IMPORTANT: Ensure getUserIdFromEvent in common/auth.ts
-// is designed to return null/undefined if no Authorization header is found,
-// rather than throwing an error directly. If it *does* throw,
-// the conditional call below (inside `if (requiresAuth)`) will catch it,
-// but returning null/undefined is generally cleaner for such a utility.
 import { getUserIdFromEvent } from '../../common/auth';
 import { formatJSONResponse } from '../../common/api-gateway';
 import { AppError, handleErrorResponse } from '../../common/errors';
@@ -32,18 +27,11 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     try {
         let userId: string | undefined; // Initialize userId as undefined
 
-        // Determine if the current API Gateway path/method combination requires authentication.
-        // It requires authentication UNLESS it's a GET or OPTIONS request to '/habits/public'.
         const requiresAuth = !((httpMethod === 'GET' || httpMethod === 'OPTIONS') && path === '/habits/public');
 
         if (requiresAuth) {
-            // Only attempt to get userId if authentication is required for this route.
-            // If getUserIdFromEvent itself throws on a missing token (instead of returning null/undefined),
-            // this `try` block will correctly catch it and pass it to `handleErrorResponse`.
             userId = getUserIdFromEvent(event);
             if (!userId) {
-                // This check catches cases where getUserIdFromEvent returns null/undefined
-                // when a token was expected (e.g., malformed token, or no token on an authenticated route).
                 throw new AppError('Unauthorized: User ID not found.', 401);
             }
         }

@@ -49,15 +49,10 @@ export const signupUser = async (data: SignupRequest): Promise<SignupResponse> =
         const response = await cognitoClient.send(signUpCommand);
 
         if (response.UserSub) {
-            // --- START FIX for signupUser's newUserProfile error ---
-            // createUserProfile expects an object WITHOUT PK, SK, createdAt, updatedAt
-            // as it adds them internally based on the new DynamoDB schema.
             const userProfileDataToCreate = {
                 userId: response.UserSub,
                 username: data.username,
                 email: data.email,
-                // Do NOT include PK, SK, createdAt, updatedAt here.
-                // authRepository's createUserProfile will handle adding these.
             };
             await createUserProfile(userProfileDataToCreate);
             // --- END FIX ---
@@ -139,11 +134,6 @@ export const loginUser = async (data: LoginRequest): Promise<LoginResponse> => {
                             createdAt: new Date().toISOString(), // Or a default timestamp
                             updatedAt: new Date().toISOString(), // Or a default timestamp
                         };
-                        // Note: If a profile is truly missing, you might want to
-                        // consider calling createUserProfile(userProfile) here as well
-                        // to ensure it's saved in the DB for future logins.
-                        // However, the current flow expects signup to always create it.
-                        // --- END FIX ---
                     }
                 }
             } catch (decodeError) {

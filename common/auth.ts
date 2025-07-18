@@ -22,6 +22,3 @@ export function getUserIdFromEvent(event: APIGatewayProxyEvent): string {
     }
     return userId;
 }
-
-// You might also have other auth-related utilities here
-// e.g., for validating custom claims, etc.
