@@ -19,6 +19,11 @@ Parameters:
     Type: String
     Default: StriveSyncUsers
     Description: Name of the DynamoDB table for user profiles.
+  # Add Stage parameter to resolve AWS::Stage for UsersTable
+  Stage:
+    Type: String
+    Default: Prod
+    Description: Deployment stage (e.g., Dev, Prod).
 
 Globals:
   Function:
@@ -32,12 +37,15 @@ Globals:
         COGNITO_CLIENT_ID: !Ref StriveSyncUserPoolClient
         COGNITO_ADMIN_CLIENT_ID: !Ref StriveSyncUserPoolAdminClient
         USERS_TABLE_NAME: !Ref UsersTable
+        # Add a specific environment variable for the main DynamoDB table name for repository
+        # IMPORTANT: This matches the table name in activityRepository.ts
+        TABLE_NAME: !Ref UsersTable
 
 Resources:
   UsersTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !Ref UsersTableName
+      TableName: !Sub "${UsersTableName}-${Stage}" # Use !Sub to append Stage to table name, referencing the new Stage parameter
       AttributeDefinitions:
         - AttributeName: PK
           AttributeType: S
@@ -45,34 +53,36 @@ Resources:
           AttributeType: S
         - AttributeName: email
           AttributeType: S
-        - AttributeName: gsi1pk # GSI1 attributes
+        - AttributeName: gsi1pk # GSI1 attributes for Activities & Participants
           AttributeType: S
         - AttributeName: gsi1sk
           AttributeType: S
-        - AttributeName: gsi2pk # GSI2 attributes
+        - AttributeName: gsi2pk # GSI2 attributes (e.g., Group Membership lookup by group)
           AttributeType: S
         - AttributeName: gsi2sk
           AttributeType: S
-        - AttributeName: gsi3pk # GSI3 attributes
+        - AttributeName: gsi3pk # GSI3 attributes (e.g., Leaderboard by XP)
           AttributeType: S
         - AttributeName: gsi3sk
           AttributeType: S
-        # --- NEW GSI ATTRIBUTE DEFINITIONS for GSI4 ONLY ---
-        - AttributeName: gsi4pk
+        - AttributeName: gsi4pk # GSI4 attributes (e.g., Active Challenges)
           AttributeType: S
         - AttributeName: gsi4sk
           AttributeType: S
-        # --- END NEW GSI ATTRIBUTE DEFINITIONS ---
+        # You'll need gsi5pk and gsi5sk for Venue booking later based on your schema
+        # - AttributeName: gsi5pk
+        #   AttributeType: S
+        # - AttributeName: gsi5sk
+        #   AttributeType: S
       KeySchema:
         - AttributeName: PK
           KeyType: HASH
         - AttributeName: SK
           KeyType: RANGE
-      ProvisionedThroughput:
+      ProvisionedThroughput: # Consider switching to PAY_PER_REQUEST for lower costs/simplicity
         ReadCapacityUnits: 1
         WriteCapacityUnits: 1
       GlobalSecondaryIndexes:
-        # Existing EmailIndex
         - IndexName: EmailIndex
           Projection:
             ProjectionType: ALL
@@ -82,11 +92,10 @@ Resources:
           ProvisionedThroughput:
             ReadCapacityUnits: 1
             WriteCapacityUnits: 1
-        # GSI1
-        - IndexName: GSI1
+        - IndexName: GSI1 # For public activities and activity participants (ACTIVITY#<activityId> -> PARTICIPANT#<userId>)
           Projection:
             ProjectionType: ALL
-          KeySchema:
+          KeySchema: # Corrected: Use KeySchema here
             - AttributeName: gsi1pk
               KeyType: HASH
             - AttributeName: gsi1sk
@@ -94,11 +103,10 @@ Resources:
           ProvisionedThroughput:
             ReadCapacityUnits: 1
             WriteCapacityUnits: 1
-        # GSI2
-        - IndexName: GSI2
+        - IndexName: GSI2 # For Group Membership lookup by group (GROUP#<groupId> -> MEMBER#<userId>)
           Projection:
             ProjectionType: ALL
-          KeySchema:
+          KeySchema: # Corrected: Use KeySchema here
             - AttributeName: gsi2pk
               KeyType: HASH
             - AttributeName: gsi2sk
@@ -106,11 +114,10 @@ Resources:
           ProvisionedThroughput:
             ReadCapacityUnits: 1
             WriteCapacityUnits: 1
-        # GSI3
-        - IndexName: GSI3
+        - IndexName: GSI3 # For Leaderboard by XP (LEADERBOARD#TOTAL_XP -> XP_TOTAL#<points>#<userId>)
           Projection:
             ProjectionType: ALL
-          KeySchema:
+          KeySchema: # Corrected: Use KeySchema here
             - AttributeName: gsi3pk
               KeyType: HASH
             - AttributeName: gsi3sk
@@ -118,11 +125,10 @@ Resources:
           ProvisionedThroughput:
             ReadCapacityUnits: 1
             WriteCapacityUnits: 1
-        # --- NEW GLOBAL SECONDARY INDEXES (ONLY GSI4) ---
-        - IndexName: GSI4
+        - IndexName: GSI4 # For Active Challenges (CHALLENGE#STATUS#ACTIVE -> START_DATE#<timestamp>)
           Projection:
             ProjectionType: ALL
-          KeySchema:
+          KeySchema: # Corrected: Use KeySchema here
             - AttributeName: gsi4pk
               KeyType: HASH
             - AttributeName: gsi4sk
@@ -130,7 +136,18 @@ Resources:
           ProvisionedThroughput:
             ReadCapacityUnits: 1
             WriteCapacityUnits: 1
-        # --- END NEW GLOBAL SECONDARY INDEXES ---
+        # Add GSI5 for Venue Discovery later if needed
+        # - IndexName: GSI5
+        #   Projection:
+        #     ProjectionType: ALL
+        #   KeySchema: # This would be the correct place to define it if uncommented
+        #     - AttributeName: gsi5pk
+        #       AttributeType: S
+        #     - AttributeName: gsi5sk
+        #       AttributeType: S
+        #   ProvisionedThroughput:
+        #     ReadCapacityUnits: 1
+        #     WriteCapacityUnits: 1
 
   StriveSyncUserPool:
     Type: AWS::Cognito::UserPool
@@ -314,7 +331,7 @@ Resources:
                 type: aws_proxy
               security:
                 - CognitoAuth: [] # Requires authentication
-          
+
           # --- NEW PATH: GET /habits/public (List Public Habits) ---
           /habits/public:
             get:
@@ -377,6 +394,82 @@ Resources:
                 - CognitoAuth: [] # Requires authentication
           # --- END HABITS PATHS ---
 
+          # --- START ACTIVITIES PATHS (DEFINED IN DefinitionBody, linked to ActivitiesFunction) ---
+          /activities:
+            # POST /activities (Create Activity) - Requires Auth
+            post:
+              requestBody:
+                required: true
+                content:
+                  application/json:
+                    schema: # Placeholder for CreateActivityRequest schema
+                      type: object
+                      properties:
+                        activityName: { type: string }
+                        description: { type: string }
+                        location: { type: object, properties: { address: { type: string }, lat: { type: number }, lon: { type: number } } }
+                        dateTime: { type: string }
+                        endTime: { type: string }
+                        frequency: { type: string }
+                        isPublic: { type: boolean }
+                        maxParticipants: { type: number }
+                        category: { type: string }
+                        photoUrl: { type: string }
+                      required: [activityName, location, dateTime, frequency, isPublic, category] # Adjust based on your CreateActivityRequest
+              responses:
+                "201":
+                  description: Create activity response
+              x-amazon-apigateway-integration:
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ActivitiesFunction.Arn}/invocations
+                httpMethod: POST
+                type: aws_proxy
+              security:
+                - CognitoAuth: [] # Requires authentication
+
+          /activities/public:
+            # GET /activities/public (List Public Activities) - No Auth Required
+            get:
+              responses:
+                "200":
+                  description: List public activities response
+              x-amazon-apigateway-integration:
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ActivitiesFunction.Arn}/invocations
+                httpMethod: POST
+                type: aws_proxy
+              # No 'security' block here means it's publicly accessible.
+
+          '/activities/{activityId}/rsvp':
+            parameters:
+              - name: activityId
+                in: path
+                required: true
+                schema:
+                  type: string
+            # POST /activities/{activityId}/rsvp (RSVP for Activity) - Requires Auth
+            post:
+              requestBody:
+                required: true
+                content:
+                  application/json:
+                    schema: # Placeholder for RSVPRequest schema
+                      type: object
+                      properties:
+                        status: { type: string, enum: ["going", "declined"] }
+                      required: [status]
+              responses:
+                "200":
+                  description: RSVP activity response
+              x-amazon-apigateway-integration:
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ActivitiesFunction.Arn}/invocations
+                httpMethod: POST
+                type: aws_proxy
+              security:
+                - CognitoAuth: [] # Requires authentication
+          # --- END ACTIVITIES PATHS ---
+
         components:
           securitySchemes:
             # --- Cognito Authorizer Definition ---
@@ -406,7 +499,7 @@ Resources:
               - cognito-idp:AdminRespondToAuthChallenge
             Resource: !GetAtt StriveSyncUserPool.Arn
         - DynamoDBWritePolicy:
-            TableName: !Ref UsersTable
+            TableName: !Ref UsersTable # Pointing to the main UsersTable
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -415,7 +508,7 @@ Resources:
         External: ["@aws-sdk/*"]
         Sourcemap: true
 
-  # --- UPDATED: API Gateway permission to invoke SignupFunction ---
+  # --- API Gateway permission to invoke SignupFunction ---
   # Specific to POST /auth/signup
   SignupFunctionApiPermission:
     Type: AWS::Lambda::Permission
@@ -445,7 +538,7 @@ Resources:
         External: ["@aws-sdk/*"]
         Sourcemap: true
 
-  # --- UPDATED: API Gateway permission to invoke ConfirmSignupFunction ---
+  # --- API Gateway permission to invoke ConfirmSignupFunction ---
   # Specific to POST /auth/confirm-signup
   ConfirmSignupFunctionApiPermission:
     Type: AWS::Lambda::Permission
@@ -468,7 +561,7 @@ Resources:
               - cognito-idp:AdminGetUser
             Resource: !GetAtt StriveSyncUserPool.Arn
         - DynamoDBReadPolicy:
-            TableName: !Ref UsersTable
+            TableName: !Ref UsersTable # Pointing to the main UsersTable
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -477,7 +570,7 @@ Resources:
         External: ["@aws-sdk/*"]
         Sourcemap: true
 
-  # --- UPDATED: API Gateway permission to invoke LoginFunction ---
+  # --- API Gateway permission to invoke LoginFunction ---
   # Specific to POST /auth/login
   LoginFunctionApiPermission:
     Type: AWS::Lambda::Permission
@@ -494,7 +587,7 @@ Resources:
       Handler: handler.getUserProfileHandler
       Policies:
         - DynamoDBReadPolicy:
-            TableName: !Ref UsersTable
+            TableName: !Ref UsersTable # Pointing to the main UsersTable
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -503,7 +596,7 @@ Resources:
         External: ["@aws-sdk/*"]
         Sourcemap: true
 
-  # --- UPDATED: API Gateway permission to invoke GetUserProfileFunction ---
+  # --- API Gateway permission to invoke GetUserProfileFunction ---
   # Specific to GET /users/me
   GetUserProfileFunctionApiPermission:
     Type: AWS::Lambda::Permission
@@ -513,27 +606,24 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/Prod/GET/users/me"
 
-  # --- NEW CONSOLIDATED HABITS FUNCTION DEFINITION ---
+  # --- CONSOLIDATED HABITS FUNCTION DEFINITION (UNCHANGED) ---
   HabitsFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: functions/habits/
       Handler: handler.handler # Points to the single 'handler' export
       Policies:
-        # Needs read and write permissions for habits table
+        # Needs read and write permissions for the main UsersTable
         - DynamoDBReadPolicy:
             TableName: !Ref UsersTable
         - DynamoDBWritePolicy:
             TableName: !Ref UsersTable
-        # Specifically allow DeleteItem for the delete operation
+        # Specifically allow DeleteItem for the delete operation (already covered by DynamoDBWritePolicy)
         - Statement:
             Effect: Allow
             Action:
               - dynamodb:DeleteItem
             Resource: !GetAtt UsersTable.Arn
-        # If your 'updateHabit' policy in the repository needs to explicitly read the current item,
-        # ensure DynamoDBReadPolicy is sufficient or add specific GetItem permission.
-        # DynamoDBReadPolicy covers GetItem, Query, Scan. DynamoDBWritePolicy covers PutItem, UpdateItem, DeleteItem.
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -542,8 +632,7 @@ Resources:
         External: ["@aws-sdk/*"]
         Sourcemap: true
 
-  # --- API Gateway Permissions for the CONSOLIDATED HabitsFunction ---
-  # Allows API Gateway to invoke the HabitsFunction for all relevant paths/methods
+  # --- API Gateway Permissions for the CONSOLIDATED HabitsFunction (UNCHANGED) ---
   HabitsFunctionApiPermissionPostHabits:
     Type: AWS::Lambda::Permission
     Properties:
@@ -584,6 +673,64 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/Prod/DELETE/habits/*" # Note the wildcard for path parameter
   # --- END CONSOLIDATED HABITS FUNCTION DEFINITION AND PERMISSIONS ---
+
+  # --- CONSOLIDATED ACTIVITIES FUNCTION DEFINITION (NOW LIKE HABITS FUNCTION) ---
+  ActivitiesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/activities/
+      Handler: handler.handler # Points to the single 'handler' export for activities
+      Policies:
+        # Needs read and write permissions for the main UsersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBWritePolicy:
+            TableName: !Ref UsersTable
+        # Specifically allow UpdateItem for adding participants (covered by DynamoDBWritePolicy but good to note)
+        - Statement:
+            Effect: Allow
+            Action:
+              - dynamodb:UpdateItem
+            Resource: !GetAtt UsersTable.Arn
+        # Also needs Query access for GSI1 to list public activities
+        - Statement:
+            Effect: Allow
+            Action:
+              - dynamodb:Query
+            Resource: !Sub "${UsersTable.Arn}/index/GSI1" # Grant Query on GSI1
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        External: ["@aws-sdk/*"]
+        Sourcemap: true
+
+  # --- API Gateway Permissions for the ACTIVITIESFunction (Explicit, matching Habits) ---
+  ActivitiesFunctionApiPermissionPostActivities:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt ActivitiesFunction.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/Prod/POST/activities"
+
+  ActivitiesFunctionApiPermissionGetPublicActivities:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt ActivitiesFunction.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/Prod/GET/activities/public"
+
+  ActivitiesFunctionApiPermissionPostRSVPActivity:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt ActivitiesFunction.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/Prod/POST/activities/*/rsvp" # Wildcard for activityId
+  # --- END ACTIVITIES FUNCTION DEFINITION AND PERMISSIONS ---
 
 Outputs:
   ApiGatewayEndpoint:

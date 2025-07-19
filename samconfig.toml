@@ -7,5 +7,5 @@ s3_prefix = "strivesync-backend-stack"
 region = "ap-south-1"
 confirm_changeset = true
 capabilities = "CAPABILITY_IAM"
-parameter_overrides = "CognitoUserPoolName=\"StriveSyncUserPool\" CognitoUserPoolClientName=\"StriveSyncWebAppClient\" CognitoUserPoolAdminClientName=\"StriveSyncAdminAppClient\" UsersTableName=\"StriveSyncUsers\""
+parameter_overrides = "CognitoUserPoolName=\"StriveSyncUserPool\" CognitoUserPoolClientName=\"StriveSyncWebAppClient\" CognitoUserPoolAdminClientName=\"StriveSyncAdminAppClient\" UsersTableName=\"StriveSyncUsers\" Stage=\"Prod\""
 image_repositories = []
